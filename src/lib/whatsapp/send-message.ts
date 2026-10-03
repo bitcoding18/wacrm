@@ -439,6 +439,13 @@ export async function sendMessageToConversation(
     const message =
       err instanceof Error ? err.message : 'Unknown Meta API error';
     console.error('[send-message] Meta send failed for all variants:', message);
+    if (isRecipientNotAllowedError(message)) {
+      throw new SendMessageError(
+        'meta_error',
+        `Meta API error: (#131030) Recipient phone number not in allowed list. In Sandbox mode, add this number to the allowed list in Meta App Dashboard > WhatsApp > API Setup, or switch to Live mode.`,
+        502
+      );
+    }
     throw new SendMessageError('meta_error', `Meta API error: ${message}`, 502);
   }
 
