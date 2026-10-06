@@ -142,3 +142,40 @@ describe("inviteExpiresAt", () => {
     expect(out.toISOString()).toBe(expected.toISOString());
   });
 });
+
+describe("getBaseUrl", () => {
+  const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+
+  it("uses NEXT_PUBLIC_SITE_URL when set to a real domain", async () => {
+    process.env.NEXT_PUBLIC_SITE_URL = "https://wacrm-omega-wine.vercel.app/";
+    const { getBaseUrl } = await import("./invitations");
+    const req = new Request("http://localhost:3000/api/account/invitations");
+    expect(getBaseUrl(req)).toBe("https://wacrm-omega-wine.vercel.app");
+    process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+  });
+
+  it("ignores dummy example.com in NEXT_PUBLIC_SITE_URL and uses x-forwarded-host", async () => {
+    process.env.NEXT_PUBLIC_SITE_URL = "https://crm.example.com";
+    const { getBaseUrl } = await import("./invitations");
+    const req = new Request("http://localhost:3000/api/account/invitations", {
+      headers: {
+        "x-forwarded-host": "wacrm-omega-wine.vercel.app",
+        "x-forwarded-proto": "https",
+      },
+    });
+    expect(getBaseUrl(req)).toBe("https://wacrm-omega-wine.vercel.app");
+    process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+  });
+
+  it("uses host header when NEXT_PUBLIC_SITE_URL is example.com and no forwarded headers", async () => {
+    process.env.NEXT_PUBLIC_SITE_URL = "https://crm.example.com";
+    const { getBaseUrl } = await import("./invitations");
+    const req = new Request("https://my-domain.org/api/account/invitations", {
+      headers: {
+        host: "my-domain.org",
+      },
+    });
+    expect(getBaseUrl(req)).toBe("https://my-domain.org");
+    process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+  });
+});

@@ -20,7 +20,7 @@ import { HEARTBEAT_MS, IDLE_AFTER_MS, type StoredPresence } from "@/lib/presence
  * 'offline' from staleness — no unreliable unload write needed.
  */
 export function PresenceHeartbeat() {
-  const { accountId } = useAuth();
+  const { accountId, user } = useAuth();
 
   // 0 = "never recorded"; set on mount so we don't read the clock during
   // render (impure). Until the effect runs the tab counts as active.
@@ -39,7 +39,13 @@ export function PresenceHeartbeat() {
     lastActivityRef.current = Date.now();
 
     const markActive = () => {
+      const wasIdle =
+        lastActivityRef.current > 0 &&
+        Date.now() - lastActivityRef.current > IDLE_AFTER_MS;
       lastActivityRef.current = Date.now();
+      if (wasIdle && typeof document !== "undefined" && !document.hidden) {
+        void beat();
+      }
     };
 
     const currentStatus = (): StoredPresence => {
@@ -56,8 +62,24 @@ export function PresenceHeartbeat() {
       const t = Date.now();
       if (t - lastBeatAt < 1_000) return;
       lastBeatAt = t;
+      const status = currentStatus();
+
+      // Immediately notify local tab components (usePresence) so the active user doesn't wait
+      // for a network roundtrip or missed Realtime event.
+      if (typeof window !== "undefined" && user?.id) {
+        window.dispatchEvent(
+          new CustomEvent("local-presence-update", {
+            detail: {
+              user_id: user.id,
+              status,
+              last_seen_at: new Date().toISOString(),
+            },
+          }),
+        );
+      }
+
       const { error } = await supabase.rpc("touch_presence", {
-        p_status: currentStatus(),
+        p_status: status,
       });
       if (error && !cancelled) {
         // Non-fatal: presence is best-effort. Log once per failure so a

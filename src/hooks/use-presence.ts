@@ -43,7 +43,7 @@ interface UsePresenceResult {
  * out (e.g. while a parent sheet is closed).
  */
 export function usePresence(enabled = true): UsePresenceResult {
-  const { accountId } = useAuth();
+  const { accountId, user } = useAuth();
 
   // Presence rows keyed by user_id, held in immutable state — each
   // update replaces the Map so React renders and the derived getters
@@ -113,58 +113,107 @@ export function usePresence(enabled = true): UsePresenceResult {
       )
       .subscribe();
 
-    supabase
-      .from("member_presence")
-      .select("user_id, status, last_seen_at")
-      .eq("account_id", accountId)
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) {
-          console.error("[usePresence] initial fetch error:", error.message);
-          return;
-        }
-        setRows((prev) => {
-          const next = new Map(prev);
-          for (const r of data ?? []) {
-            const userId = r.user_id as string;
-            const incoming: PresenceRow = {
-              status: r.status as StoredPresence,
-              last_seen_at: r.last_seen_at as string,
-            };
-            const existing = next.get(userId);
-            // A live event that arrived first must win over a staler
-            // snapshot row.
-            if (
-              !existing ||
-              new Date(incoming.last_seen_at) >= new Date(existing.last_seen_at)
-            ) {
-              next.set(userId, incoming);
-            }
+    const fetchSnapshot = () => {
+      supabase
+        .from("member_presence")
+        .select("user_id, status, last_seen_at")
+        .eq("account_id", accountId)
+        .then(({ data, error }) => {
+          if (cancelled) return;
+          if (error) {
+            console.error("[usePresence] fetch error:", error.message);
+            return;
           }
-          return next;
+          setRows((prev) => {
+            const next = new Map(prev);
+            for (const r of data ?? []) {
+              const userId = r.user_id as string;
+              const incoming: PresenceRow = {
+                status: r.status as StoredPresence,
+                last_seen_at: r.last_seen_at as string,
+              };
+              const existing = next.get(userId);
+              if (
+                !existing ||
+                new Date(incoming.last_seen_at) >= new Date(existing.last_seen_at)
+              ) {
+                next.set(userId, incoming);
+              }
+            }
+            return next;
+          });
         });
-      });
+    };
+
+    fetchSnapshot();
+
+    const onLocalUpdate = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.user_id) {
+        applyRow(detail);
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("local-presence-update", onLocalUpdate);
+      window.addEventListener("focus", fetchSnapshot);
+    }
+    const onVisibility = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        fetchSnapshot();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
 
     const tick = setInterval(() => setNow(Date.now()), RE_DERIVE_MS);
 
     return () => {
       cancelled = true;
       clearInterval(tick);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("local-presence-update", onLocalUpdate);
+        window.removeEventListener("focus", fetchSnapshot);
+      }
+      document.removeEventListener("visibilitychange", onVisibility);
       supabase.removeChannel(channel);
     };
   }, [active, accountId]);
 
   const getRow = useCallback(
-    (userId: string): PresenceRow | undefined => rows.get(userId),
-    [rows],
+    (userId: string): PresenceRow | undefined => {
+      if (
+        user?.id &&
+        userId === user.id &&
+        typeof document !== "undefined" &&
+        !document.hidden
+      ) {
+        const row = rows.get(userId);
+        return {
+          status: row?.status ?? "online",
+          last_seen_at: row?.last_seen_at ?? new Date(now).toISOString(),
+        };
+      }
+      return rows.get(userId);
+    },
+    [rows, now, user?.id],
   );
 
   const getPresence = useCallback(
     (userId: string): PresenceStatus => {
+      // The current viewer themselves on this active tab is online
+      if (
+        user?.id &&
+        userId === user.id &&
+        typeof document !== "undefined" &&
+        !document.hidden
+      ) {
+        const row = rows.get(userId);
+        return row?.status ?? "online";
+      }
       const row = rows.get(userId);
       return derivePresence(row?.status, row?.last_seen_at, now);
     },
-    [rows, now],
+    [rows, now, user?.id],
   );
 
   return { getPresence, getRow, now };

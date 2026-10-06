@@ -99,3 +99,70 @@ export function clampExpiryDays(expiresInDays: number | undefined): number {
   }
   return Math.min(Math.floor(expiresInDays), MAX_INVITE_EXPIRY_DAYS);
 }
+
+export function parseAllowedHosts(raw = process.env.ALLOWED_INVITE_HOSTS): readonly string[] | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  const list = trimmed
+    .split(",")
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  return list.length > 0 ? list : null;
+}
+
+export function isHostAllowed(
+  hostname: string,
+  allowList: readonly string[] | null,
+): boolean {
+  if (!allowList) return true;
+  return allowList.includes(hostname.toLowerCase());
+}
+
+/**
+ * Resolve the base URL we publish invite links under.
+ *
+ * 1. `NEXT_PUBLIC_SITE_URL` — explicit config (unless it is a placeholder like `example.com`).
+ * 2. `X-Forwarded-Host` (+ `X-Forwarded-Proto`) — set by proxies (Vercel, Cloudflare, etc.).
+ * 3. `Host` header + request URL protocol.
+ * 4. Fallback to `NEXT_PUBLIC_SITE_URL` (if set) or `https://wacrm.tech`.
+ */
+export function getBaseUrl(request: Request): string {
+  const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  // Don't treat dummy/example placeholder domains as an explicit configuration
+  if (explicit && !explicit.includes("example.com")) {
+    return explicit.replace(/\/+$/, "");
+  }
+
+  const allowList = parseAllowedHosts();
+  const forwardedHost = request.headers
+    .get("x-forwarded-host")
+    ?.split(",")[0]
+    ?.trim();
+  const forwardedProto = request.headers
+    .get("x-forwarded-proto")
+    ?.split(",")[0]
+    ?.trim();
+  if (forwardedHost && isHostAllowed(forwardedHost, allowList)) {
+    return `${forwardedProto || "https"}://${forwardedHost}`;
+  }
+
+  const host = request.headers.get("host")?.trim();
+  if (host && isHostAllowed(host, allowList)) {
+    const reqProto = new URL(request.url).protocol.replace(":", "");
+    return `${reqProto}://${host}`;
+  }
+
+  if (explicit) return explicit.replace(/\/+$/, "");
+
+  if (allowList && (forwardedHost || host)) {
+    console.warn(
+      "[POST /api/account/invitations] rejected non-allow-listed host:",
+      { forwardedHost, host, allowList },
+    );
+  } else {
+    console.warn(
+      "[POST /api/account/invitations] could not derive base URL from request; falling back to marketing domain",
+    );
+  }
+  return "https://wacrm.tech";
+}
