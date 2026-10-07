@@ -1,4 +1,4 @@
-import { uploadResumableMedia } from '@/lib/whatsapp/meta-api'
+import { getMetaAppId, uploadResumableMedia } from '@/lib/whatsapp/meta-api'
 import { MEDIA_HEADER_SPECS, isMediaHeaderKind } from '@/lib/whatsapp/media-header-types'
 import type { TemplatePayload } from '@/lib/whatsapp/template-validators'
 import { isDeliverableUrl } from '@/lib/webhooks/ssrf'
@@ -34,7 +34,10 @@ export async function ensureMediaHeaderHandle(
 
   const spec = MEDIA_HEADER_SPECS[kind]
 
-  const appId = process.env.META_APP_ID
+  let appId = process.env.META_APP_ID
+  if (!appId) {
+    appId = (await getMetaAppId(accessToken)) ?? undefined
+  }
   if (!appId) {
     throw new Error(
       'Media-header templates need META_APP_ID set (used for Meta’s Resumable Upload). Add it to your environment, or remove the media header.',

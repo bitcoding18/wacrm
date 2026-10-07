@@ -592,6 +592,23 @@ export async function sendTemplateMessage(
 //
 // See https://developers.facebook.com/docs/graph-api/guides/upload
 
+/**
+ * Fetch the Meta App ID associated with the access token.
+ * Returns null if the token does not have permission or call fails.
+ */
+export async function getMetaAppId(accessToken: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${META_API_BASE}/app?fields=id`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+    if (!res.ok) return null
+    const data = (await res.json()) as { id?: string }
+    return data.id ?? null
+  } catch {
+    return null
+  }
+}
+
 export interface UploadResumableMediaArgs {
   /** Meta App id (env META_APP_ID) — resumable upload is app-scoped. */
   appId: string
