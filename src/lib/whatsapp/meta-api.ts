@@ -32,6 +32,8 @@ interface MetaErrorResponse {
     error_subcode?: number
     type?: string
     fbtrace_id?: string
+    error_user_title?: string
+    error_user_msg?: string
     /** WhatsApp-specific envelope — `details` is the human-readable part. */
     error_data?: { messaging_product?: string; details?: string }
   }
@@ -55,6 +57,8 @@ export class MetaApiError extends Error {
   readonly httpStatus: number
   /** `error.error_data.details` — WhatsApp endpoints put the useful text here. */
   readonly details: string | null
+  readonly userTitle: string | null
+  readonly userMsg: string | null
 
   constructor(
     message: string,
@@ -65,6 +69,8 @@ export class MetaApiError extends Error {
       fbtraceId?: string | null
       httpStatus: number
       details?: string | null
+      userTitle?: string | null
+      userMsg?: string | null
     },
   ) {
     super(message)
@@ -75,6 +81,8 @@ export class MetaApiError extends Error {
     this.fbtraceId = fields.fbtraceId ?? null
     this.httpStatus = fields.httpStatus
     this.details = fields.details ?? null
+    this.userTitle = fields.userTitle ?? null
+    this.userMsg = fields.userMsg ?? null
   }
 }
 
@@ -98,7 +106,9 @@ async function readMetaError(response: Response, fallback: string): Promise<Meta
     type: envelope?.type ?? null,
     fbtraceId: envelope?.fbtrace_id ?? null,
     httpStatus: response.status,
-    details: envelope?.error_data?.details ?? null,
+    details: envelope?.error_data?.details ?? envelope?.error_user_msg ?? null,
+    userTitle: envelope?.error_user_title ?? null,
+    userMsg: envelope?.error_user_msg ?? null,
   })
 }
 
@@ -777,7 +787,22 @@ export async function deleteMessageTemplate(
   // side, and we still want the local row removed.
   if (response.status === 404) return
   if (!response.ok) {
-    await throwMetaError(response, `Meta API error: ${response.status}`)
+    const err = await readMetaError(response, `Meta API error: ${response.status}`)
+    // Meta returns HTTP 400 with code 100 ("Invalid parameter") and error_subcode 2593002
+    // ("Message Template Not Found") or 2593004 ("Message Template Already Deleted")
+    // instead of 404 when deleting a template that no longer exists on Meta.
+    const isNotFound =
+      err.httpStatus === 404 ||
+      err.subcode === 2593002 ||
+      err.subcode === 2593004 ||
+      err.subcode === 2388001 ||
+      /not found|wasn't found|already deleted|does not exist/i.test(
+        `${err.message} ${err.details ?? ''} ${err.userMsg ?? ''}`
+      )
+
+    if (isNotFound) return
+
+    throw err
   }
 }
 

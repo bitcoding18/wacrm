@@ -208,6 +208,50 @@ describe('deleteMessageTemplate', () => {
     ).resolves.toBeUndefined();
   });
 
+  it('treats 400 subcode 2593002 (Message Template Not Found) as a no-op', async () => {
+    fetchMock.mockResolvedValueOnce(
+      errorResponse(400, {
+        error: {
+          message: 'Invalid parameter',
+          code: 100,
+          error_subcode: 2593002,
+          error_user_title: 'Message Template Not Found',
+          error_user_msg: "The message template x wasn't found for this account.",
+        },
+      }),
+    );
+    await expect(
+      deleteMessageTemplate({
+        wabaId: 'W',
+        accessToken: 't',
+        name: 'x',
+        metaTemplateId: 'y',
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('treats 400 subcode 2593004 (Message Template Already Deleted) as a no-op', async () => {
+    fetchMock.mockResolvedValueOnce(
+      errorResponse(400, {
+        error: {
+          message: 'Invalid parameter',
+          code: 100,
+          error_subcode: 2593004,
+          error_user_title: 'Message Template Already Deleted',
+          error_user_msg: 'The template was already deleted.',
+        },
+      }),
+    );
+    await expect(
+      deleteMessageTemplate({
+        wabaId: 'W',
+        accessToken: 't',
+        name: 'x',
+        metaTemplateId: 'y',
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   it('throws on non-404 errors', async () => {
     fetchMock.mockResolvedValueOnce(
       errorResponse(500, { error: { message: 'boom' } }),

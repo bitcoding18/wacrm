@@ -9,6 +9,7 @@ import { decrypt } from '@/lib/whatsapp/encryption'
 import {
   deleteMessageTemplate,
   editMessageTemplate,
+  MetaApiError,
 } from '@/lib/whatsapp/meta-api'
 import {
   validateTemplatePayload,
@@ -274,8 +275,23 @@ export async function DELETE(
           metaTemplateId: existing.meta_template_id,
         })
       } catch (e) {
-        const message = e instanceof Error ? e.message : 'Meta delete failed.'
-        return NextResponse.json({ error: message }, { status: 502 })
+        if (e instanceof MetaApiError) {
+          const isNotFound =
+            e.httpStatus === 404 ||
+            e.subcode === 2593002 ||
+            e.subcode === 2593004 ||
+            e.subcode === 2388001 ||
+            /not found|wasn't found|already deleted|does not exist/i.test(
+              `${e.message} ${e.details ?? ''} ${e.userMsg ?? ''}`
+            )
+          if (!isNotFound) {
+            const message = e.userMsg || e.details || e.message
+            return NextResponse.json({ error: message }, { status: 502 })
+          }
+        } else {
+          const message = e instanceof Error ? e.message : 'Meta delete failed.'
+          return NextResponse.json({ error: message }, { status: 502 })
+        }
       }
     }
 
